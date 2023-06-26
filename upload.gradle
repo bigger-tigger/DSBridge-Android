@@ -1,0 +1,131 @@
+apply plugin: 'maven-publish'
+
+int type = getModuleType(project.name)
+if (type == 0) {
+    println("==========>${project.name} Version: UNKNOWN, may not define in gradle.properties <==========")
+} else if (type == 1) {
+    println("==========>${project.name} SNAPSHOT Version: ${getVersion(project.name)} <==========")
+} else {
+    println("==========>${project.name} Release Version: ${getVersion(project.name)} <==========")
+}
+
+publishing {
+
+    def maven_user = new Properties()
+    maven_user.load(new FileInputStream(rootProject.file("local.properties")))
+    def user_name = maven_user.getProperty("MAVEN_USERNAME")
+    def pwd = maven_user.getProperty("MAVEN_PASSWORD")
+    if (user_name == null || user_name.isEmpty() || pwd == null || pwd.isEmpty()) {
+        throw new IllegalStateException("cannot find maven user or pwd in local.properties, you should define[\"MAVEN_USERNAME=xxx MAVEN_PASSWORD=xxx\"] in local.properties first")
+    }
+
+    repositories {
+        maven {
+            name = MAVEN_PACKAGENAME
+            url = uri(MAVEN_URL)
+            credentials {
+                username = user_name
+                password = pwd
+            }
+        }
+    }
+
+    publications {
+        aar(MavenPublication) {
+            groupId GROUP_POM_ID // 仓库组Id
+            artifactId getArtifactId(project.name)
+            version getVersion(project.name)
+            artifact("$buildDir/outputs/aar/${project.name}-release.aar")
+//            artifact(sourceJar)
+
+            pom.withXml {
+                final dependenciesNode = asNode().appendNode('dependencies')
+                ext.addDependency = { Dependency dep, String scope ->
+                    if (dep.group == null || dep.version == null || dep.name == null || dep.name == "unspecified")
+                        return
+                    final dependencyNode = dependenciesNode.appendNode('dependency')
+                    dependencyNode.appendNode('groupId', dep.group)
+                    dependencyNode.appendNode('artifactId', dep.name)
+                    dependencyNode.appendNode('version', dep.version)
+                    dependencyNode.appendNode('scope', scope)
+                    if (!dep.transitive) {
+                        final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                        exclusionNode.appendNode('groupId', '*')
+                        exclusionNode.appendNode('artifactId', '*')
+                    } else if (!dep.properties.excludeRules.empty) {
+                        final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                        dep.properties.excludeRules.each { ExcludeRule rule ->
+                            exclusionNode.appendNode('groupId', rule.group ?: '*')
+                            exclusionNode.appendNode('artifactId', rule.module ?: '*')
+                        }
+                    }
+                }
+                configurations.compile.getDependencies().each { dep -> addDependency(dep, "compile") }
+                configurations.api.getDependencies().each { dep -> addDependency(dep, "compile") }
+                configurations.implementation.getDependencies().each { dep -> addDependency(dep, "runtime") }
+            }
+        }
+
+        jar(MavenPublication) {
+            groupId GROUP_POM_ID // 仓库组Id
+            artifactId getArtifactId(project.name)
+            version getVersion(project.name)
+            artifact("$buildDir/libs/${project.name}.jar")
+
+            pom.withXml {
+                final dependenciesNode = asNode().appendNode('dependencies')
+                ext.addDependency = { Dependency dep, String scope ->
+                    if (dep.group == null || dep.version == null || dep.name == null || dep.name == "unspecified")
+                        return
+                    final dependencyNode = dependenciesNode.appendNode('dependency')
+                    dependencyNode.appendNode('groupId', dep.group)
+                    dependencyNode.appendNode('artifactId', dep.name)
+                    dependencyNode.appendNode('version', dep.version)
+                    dependencyNode.appendNode('scope', scope)
+                    if (!dep.transitive) {
+                        final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                        exclusionNode.appendNode('groupId', '*')
+                        exclusionNode.appendNode('artifactId', '*')
+                    } else if (!dep.properties.excludeRules.empty) {
+                        final exclusionNode = dependencyNode.appendNode('exclusions').appendNode('exclusion')
+                        dep.properties.excludeRules.each { ExcludeRule rule ->
+                            exclusionNode.appendNode('groupId', rule.group ?: '*')
+                            exclusionNode.appendNode('artifactId', rule.module ?: '*')
+                        }
+                    }
+                }
+                configurations.compile.getDependencies().each { dep -> addDependency(dep, "compile") }
+                configurations.api.getDependencies().each { dep -> addDependency(dep, "compile") }
+                configurations.implementation.getDependencies().each { dep -> addDependency(dep, "runtime") }
+            }
+        }
+    }
+}
+
+String getArtifactId(String moduleName) {
+    String ret = moduleName.replaceAll("_", "-")
+    return "lib-$ret"
+}
+
+String getVersion(String moduleName) {
+    moduleName = moduleName.replaceAll("-", "_")
+    if (!hasProperty("lib_$moduleName")) return null
+    def version = getProperty("lib_$moduleName")
+    return version
+}
+
+int getModuleType(String moduleName) {
+    moduleName = moduleName.replaceAll("-", "_")
+    if (hasProperty("$moduleName")) {
+        if (getVersion(moduleName).contains("SNAPSHOT")) {
+            return 1
+        } else {
+            return 2
+        }
+    } else {
+        return 0
+    }
+}
+
+publishAarPublicationToGitHubPackagesRepository.dependsOn('assembleRelease')
+publishJarPublicationToGitHubPackagesRepository.dependsOn('build')
